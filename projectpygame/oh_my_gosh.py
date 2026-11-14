@@ -6,12 +6,15 @@ import pygame
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-SCREEN_WIDTH = 1280
-SCREEN_HEIGHT = 720
+pygame.init()
+pygame.mixer.set_num_channels(16)
+pygame.font.init()
+
+screen = pygame.display.get_desktop_sizes()[0]
+SCREEN_WIDTH = screen[0]
+SCREEN_HEIGHT = screen[1]
 MAX_DELTA = 1 / 30  # กันเฟรมที่ค้างนาน ๆ ทำให้วัตถุกระโดด
 
-pygame.init()
-pygame.font.init()
 
 # vsync ช่วยลดภาพฉีก/กระตุก (ถ้าเครื่องไม่รองรับจะ fallback เป็นแบบปกติ)
 try:
@@ -283,6 +286,9 @@ class Speed_Boost(Obstacle_class):
         else:
             speed_boost_timer = current_time + 2000
             is_speed_boosted = True
+    
+    def sound(self):
+        speed_increase_sound.play()
 
 
 class Speed_Down(Obstacle_class):
@@ -305,6 +311,9 @@ class Speed_Down(Obstacle_class):
         else:
             speed_boost_timer = current_time + 2000
             is_speed_boosted = True
+    
+    def sound(self):
+        speed_decrease_sound.play()
 
 
 class decrease_hp(Obstacle_class):
@@ -313,17 +322,27 @@ class decrease_hp(Obstacle_class):
 
     def effect(self, player, player_HP):
         player_HP.hp -= 1
-
+        if player_HP.hp < player_HP.max_hp and player_HP.reserve > 0:
+            player_HP.reserve -= 1
+            player_HP.hp += 1
+    
+    def sound(self):
+        hit_cone_sound.play()
 
 class increase_hp(Obstacle_class):
     def __init__(self, obstacle_path, screen_width, screen_height, scale_factor=0.5, speed=3):
         super().__init__(obstacle_path, screen_width, screen_height, scale_factor, speed)
+        self.storage = 0
 
     def effect(self, player, player_HP):
         if player_HP.hp < 3:
             player_HP.hp += 1
-
-
+        elif player_HP.reserve < player_HP.max_reserve:
+            player_HP.reserve += 1
+            
+    def sound(self):
+        heal_point.play()
+        
 class Lane_Switcher(decrease_hp):
     """อุปสรรคที่สลับเลนระหว่างเลื่อนมาทางซ้าย
     ขั้นตอน: idle (วิ่งตรง) -> warn (โชว์เงาที่เลนปลายทาง) -> move (เลื่อนไปเลนใหม่)
@@ -424,8 +443,12 @@ class coin_class(Obstacle_class):
 
 
 class HP:
-    def __init__(self, heart_path1, heart_path2, max_hp):
+    def __init__(self, heart_path1, heart_path2, max_hp, reserve_icon_path=None, max_reserve=3):
         self.hp = max_hp
+        self.max_hp = max_hp
+        self.reserve = 0
+        self.max_reserve = max_reserve
+        
         self.image = load_scaled(heart_path1, scale=0.05)
         self.image2 = load_scaled(heart_path2, scale=0.05)
         self.width, self.height = self.image.get_size()
@@ -434,6 +457,10 @@ class HP:
         self.start_x = 30
         self.start_y = 30
 
+        self.reserve_icon = None
+        if reserve_icon_path:
+            self.reserve_icon = load_scaled(reserve_icon_path, size=(self.width, self.height))
+            
     def draw(self, screen):
         for i in range(0, 3):
             x_pos = self.start_x + (i * (self.width + self.spacing))
@@ -441,25 +468,37 @@ class HP:
                 screen.blit(self.image, (x_pos, self.start_y))
             else:
                 screen.blit(self.image2, (x_pos, self.start_y))
-
+        
+        if self.reserve_icon and self.reserve > 0:
+            for r in range(self.reserve):
+                rx = self.start_x + ((self.max_hp + r) * (self.width + self.spacing)) + 10
+                screen.blit(self.reserve_icon, (rx, self.start_y))
 
 # --- GAME CONTROL FUNCTIONS ---
 
 def set_game_over():
     global state
     state = "gameover"
+    Background_sound.stop()
+    Failed.play()
 
 
 def quit_game():
     global Program
     Program = False
 
+def set_time_up():
+    global state
+    state = "timeup"
+    Background_sound.stop()  # หยุดเพลงพื้นหลัง
+    Victory.play()
 
 def start_game():
     global state, player, background1, obstacles_list, coin_list
     global coins_collected, player_hp, current_world_speed, is_speed_boosted
     global last_spawn_time, last_spawn_time2, speed_boost_timer
     global base_speed, game_time, speed_level
+    global coin_sound, hit_cone_sound, speed_increase_sound, speed_decrease_sound, heal_point, Failed, Background_sound, Victory
 
     state = "playing"
     coins_collected = 0
@@ -489,9 +528,34 @@ def start_game():
     player = player_class(50, SCREEN_HEIGHT // 2, car_frames, 0.3, 10)
     player.set_lane(SCREEN_HEIGHT)
 
-    player_hp = HP(os.path.join('gamepicture', 'heart.png'), os.path.join('gamepicture', 'grey_heart.png'), 3)
+    player_hp = HP(os.path.join('gamepicture', 'heart.png'), os.path.join('gamepicture', 'grey_heart.png'), 3, reserve_icon_path=os.path.join('gamepicture', 'medicine.png'),max_reserve=3)
 
+    coin_sound = pygame.mixer.Sound(os.path.join('soundeffect', 'coin_sound.wav'))
+    coin_sound.set_volume(0.3)
+    
+    hit_cone_sound = pygame.mixer.Sound(os.path.join('soundeffect', 'Oof.wav'))
+    hit_cone_sound.set_volume(0.5)
 
+    speed_increase_sound = pygame.mixer.Sound(os.path.join('soundeffect', 'Speed_increase.wav'))
+    speed_increase_sound.set_volume(0.5)
+    
+    speed_decrease_sound = pygame.mixer.Sound(os.path.join('soundeffect', 'Speed_decrease.wav'))
+    speed_decrease_sound.set_volume(0.5)
+    
+    heal_point = pygame.mixer.Sound(os.path.join('soundeffect', 'Heal.mp3'))
+    heal_point.set_volume(0.5)
+    
+    Failed = pygame.mixer.Sound(os.path.join('soundeffect', 'Failed.wav'))
+    Failed.set_volume(0.2)
+    
+    Victory = pygame.mixer.Sound(os.path.join('soundeffect', 'Victory.mp3'))
+    Victory.set_volume(0.2)
+    
+    pygame.mixer.stop()
+    Background_sound = pygame.mixer.Sound(os.path.join('soundeffect', 'Background_sound.mp3'))
+    Background_sound.set_volume(0.15)
+    Background_sound.play()
+    
 def create_menus():
     global menu, game_over_menu, time_up_menu
     menu = PixelMenu("CAR GAME", [("START", start_game), ("QUIT", quit_game)])
@@ -499,7 +563,6 @@ def create_menus():
                                lambda: f"Coins: {coins_collected}")
     time_up_menu = PixelMenu("TIME UP!", [("RETRY", start_game), ("QUIT", quit_game)],
                              lambda: f"Coins: {coins_collected}")
-
 
 # --- MAIN EXECUTION ---
 
@@ -546,6 +609,7 @@ if __name__ == "__main__":
 
     # cache ข้อความคะแนนเหรียญ เรนเดอร์ใหม่เฉพาะตอนคะแนนเปลี่ยน
     coin_text = font.render("Coins: 0", True, (255, 215, 0))
+    coin_pic =  load_scaled(os.path.join('gamepicture', 'Coin1.png'), scale=0.4)
     last_rendered_coins = 0
 
     # cache ข้อความเวลา/เลเวลความเร็ว
@@ -620,6 +684,7 @@ if __name__ == "__main__":
                 if player.mask.overlap(c.mask, offset):
                     coins_collected += 1
                     coin_list.remove(c)
+                    coin_sound.play()
                 elif c.x <= -c.width:
                     coin_list.remove(c)
 
@@ -629,9 +694,10 @@ if __name__ == "__main__":
                 offset = (round(obs.x) - player.x, round(obs.y) - player.y)
                 if player.mask.overlap(obs.mask, offset):
                     obs.effect(player, player_hp)
+                    obs.sound()
                     obstacles_list.remove(obs)
                     if player_hp.hp <= 0:
-                        set_game_over()
+                        set_game_over() 
                 elif obs.x <= -obs.width:
                     obstacles_list.remove(obs)
 
@@ -657,7 +723,11 @@ if __name__ == "__main__":
             if coins_collected != last_rendered_coins:
                 coin_text = font.render(f"Coins: {coins_collected}", True, (255, 215, 0))
                 last_rendered_coins = coins_collected
-            screen.blit(coin_text, coin_text.get_rect(topright=(SCREEN_WIDTH - 20, 20)))
+            text = font.render(f"Each Pills x10 Pts", True, (255, 215, 0))
+            screen.blit(coin_text, coin_text.get_rect(topright=(SCREEN_WIDTH - 90, 40)))
+            screen.blit(coin_pic, coin_pic.get_rect(topright=(SCREEN_WIDTH - 0, 5)))
+            screen.blit(text, text.get_rect(topright=(SCREEN_WIDTH-1640, 100)))
+            
 
             secs_left = max(0, math.ceil(GAME_DURATION - game_time))
             if (secs_left, speed_level) != time_key:
@@ -670,12 +740,18 @@ if __name__ == "__main__":
 
             # หมดเวลา (ถ้าเลือดหมดในเฟรมเดียวกัน ให้ถือว่าชนก่อน)
             if state == "playing" and game_time >= GAME_DURATION:
+                coins_collected += player_hp.reserve * 10
+                player_hp.reserve = 0
+                set_time_up()
                 state = "timeup"
+                Background_sound.stop()
+            
 
         elif state == "gameover":
             game_over_menu.update(events)
             game_over_menu.draw(screen)
-
+            
+            
         elif state == "timeup":
             time_up_menu.update(events)
             time_up_menu.draw(screen)
