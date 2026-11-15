@@ -1,7 +1,8 @@
-import os
-import sys
 import math
+import os
 import random
+import sys
+
 import pygame
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -530,7 +531,7 @@ class HP:
             self.reserve_icon = load_scaled(reserve_icon_path, size=(self.width, self.height))
             
     def draw(self, screen):
-        for i in range(0, 3):
+        for i in range(3):
             x_pos = self.start_x + (i * (self.width + self.spacing))
             if i < self.hp:
                 screen.blit(self.image, (x_pos, self.start_y))
