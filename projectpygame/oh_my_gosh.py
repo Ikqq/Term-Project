@@ -145,14 +145,14 @@ class PixelMenu:
         self.subtitle = subtitle  # ฟังก์ชันที่คืนข้อความ เช่น lambda: 'Coins: 5'
         self.title_font = pygame.font.Font("Syntricate.ttf", 48)
         self.btn_font = pygame.font.Font("Syntricate.ttf", 24)
-        self.sub_font = pygame.font.Font("Syntricate.ttf", 20)
+        self.sub_font = pygame.font.Font("Syntricate.ttf", 32)
 
     def _button_rect(self, index):
         button_width = 420
         button_height = 76
         button_gap = 28
         group_height = len(self.actions) * button_height + max(0, len(self.actions) - 1) * button_gap
-        top = SCREEN_HEIGHT // 2 + 130 - group_height // 2
+        top = SCREEN_HEIGHT // 2 - group_height // 2
         return pygame.Rect(
             (SCREEN_WIDTH - button_width) // 2,
             top + index * (button_height + button_gap),
@@ -176,11 +176,19 @@ class PixelMenu:
         pygame.draw.rect(surface, (18, 18, 26), (110, 90, SCREEN_WIDTH - 220, SCREEN_HEIGHT - 180), 2)
 
         title = self.title_font.render(self.title, True, (255, 245, 210))
-        surface.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 190)))
-
+        title_rect = title.get_rect()
         if self.subtitle:
             sub = self.sub_font.render(self.subtitle(), True, (255, 209, 102))
-            surface.blit(sub, sub.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 110)))
+            subtitle_rect = sub.get_rect()
+            vertical_gap = 28
+            subtitle_rect.centerx = SCREEN_WIDTH // 2
+            subtitle_rect.bottom = self._button_rect(0).top - vertical_gap
+            title_rect.centerx = SCREEN_WIDTH // 2
+            title_rect.bottom = subtitle_rect.top - vertical_gap
+            surface.blit(sub, subtitle_rect)
+        else:
+            title_rect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 190)
+        surface.blit(title, title_rect)
 
         for i, (label, _) in enumerate(self.actions):
             rect = self._button_rect(i)
@@ -621,7 +629,7 @@ def create_menus():
     menu = PixelMenu("CAR GAME", [("START", start_game), ("QUIT", quit_game)])
     game_over_menu = PixelMenu("CRASHED", [("RETRY", start_game), ("QUIT", quit_game)],
                                lambda: f"Coins: {coins_collected}")
-    time_up_menu = PixelMenu("TIME UP!", [("RETRY", start_game), ("QUIT", quit_game)],
+    time_up_menu = PixelMenu("VICTORY!", [("RETRY", start_game), ("QUIT", quit_game)],
                              lambda: f"Coins: {coins_collected}")
 
 # --- MAIN EXECUTION ---
