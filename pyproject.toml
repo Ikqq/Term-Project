@@ -1,0 +1,19 @@
+[project]
+name = "term-project"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Ananthaweep", email = "155903478+Ananthaweep@users.noreply.github.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "pygame-ce>=2.5.8",
+]
+
+[project.scripts]
+term-project = "term_project:main"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"

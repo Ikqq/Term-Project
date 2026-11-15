@@ -10,26 +10,48 @@ pygame.init()
 pygame.mixer.set_num_channels(16)
 pygame.font.init()
 
-screen = pygame.display.get_desktop_sizes()[0]
-SCREEN_WIDTH = screen[0]
-SCREEN_HEIGHT = screen[1]
+DISPLAY_WIDTH, DISPLAY_HEIGHT = pygame.display.get_desktop_sizes()[0]
+SCREEN_WIDTH = 1366
+SCREEN_HEIGHT = 768
 MAX_DELTA = 1 / 30  # กันเฟรมที่ค้างนาน ๆ ทำให้วัตถุกระโดด
 
 
-# vsync ช่วยลดภาพฉีก/กระตุก (ถ้าเครื่องไม่รองรับจะ fallback เป็นแบบปกติ)
+# Keep the game layout at one design resolution and fit it inside each display.
 try:
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SCALED, vsync=1)
+    display = pygame.display.set_mode((DISPLAY_WIDTH, DISPLAY_HEIGHT), vsync=1)
 except (pygame.error, TypeError):
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    display = pygame.display.set_mode((DISPLAY_WIDTH, DISPLAY_HEIGHT))
+
+viewport_scale = min(
+    display.get_width() / SCREEN_WIDTH,
+    display.get_height() / SCREEN_HEIGHT,
+)
+viewport_width = round(SCREEN_WIDTH * viewport_scale)
+viewport_height = round(SCREEN_HEIGHT * viewport_scale)
+viewport_rect = pygame.Rect(
+    (display.get_width() - viewport_width) // 2,
+    (display.get_height() - viewport_height) // 2,
+    viewport_width,
+    viewport_height,
+)
+screen = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+scaled_frame = pygame.Surface(viewport_rect.size)
+
+
+def window_to_game_position(position):
+    return (
+        (position[0] - viewport_rect.left) * SCREEN_WIDTH // viewport_rect.width,
+        (position[1] - viewport_rect.top) * SCREEN_HEIGHT // viewport_rect.height,
+    )
 
 clock = pygame.time.Clock()
-font = pygame.font.SysFont("Arial", 36, bold=True)
+font = pygame.font.Font("Syntricate.ttf", 24)
 Program = True
 delta_time = 0
 state = "menu"
 
 # ตัวแปรควบคุมเกมและความเร็วโลก (World Speed)
-BASE_SPEED = 15
+BASE_SPEED = 20
 current_world_speed = BASE_SPEED
 
 # ระบบจับเวลาและเพิ่มความยาก
@@ -121,16 +143,29 @@ class PixelMenu:
         self.title = title
         self.actions = actions
         self.subtitle = subtitle  # ฟังก์ชันที่คืนข้อความ เช่น lambda: 'Coins: 5'
-        self.title_font = pygame.font.SysFont("Courier New", 54, bold=True)
-        self.btn_font = pygame.font.SysFont("Courier New", 24, bold=True)
-        self.sub_font = pygame.font.SysFont("Courier New", 32, bold=True)
+        self.title_font = pygame.font.Font("Syntricate.ttf", 48)
+        self.btn_font = pygame.font.Font("Syntricate.ttf", 24)
+        self.sub_font = pygame.font.Font("Syntricate.ttf", 20)
+
+    def _button_rect(self, index):
+        button_width = 420
+        button_height = 76
+        button_gap = 28
+        group_height = len(self.actions) * button_height + max(0, len(self.actions) - 1) * button_gap
+        top = SCREEN_HEIGHT // 2 + 130 - group_height // 2
+        return pygame.Rect(
+            (SCREEN_WIDTH - button_width) // 2,
+            top + index * (button_height + button_gap),
+            button_width,
+            button_height,
+        )
 
     def update(self, events):
-        mouse = pygame.mouse.get_pos()
+        mouse = window_to_game_position(pygame.mouse.get_pos())
         for event in events:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 for i, (_, action) in enumerate(self.actions):
-                    rect = pygame.Rect(SCREEN_WIDTH // 2 - 140, 330 + i * 90, 280, 52)
+                    rect = self._button_rect(i)
                     if rect.collidepoint(mouse):
                         action()
                         return
@@ -141,15 +176,15 @@ class PixelMenu:
         pygame.draw.rect(surface, (18, 18, 26), (110, 90, SCREEN_WIDTH - 220, SCREEN_HEIGHT - 180), 2)
 
         title = self.title_font.render(self.title, True, (255, 245, 210))
-        surface.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, 160)))
+        surface.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 190)))
 
         if self.subtitle:
             sub = self.sub_font.render(self.subtitle(), True, (255, 209, 102))
-            surface.blit(sub, sub.get_rect(center=(SCREEN_WIDTH // 2, 245)))
+            surface.blit(sub, sub.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 110)))
 
         for i, (label, _) in enumerate(self.actions):
-            rect = pygame.Rect(SCREEN_WIDTH // 2 - 140, 330 + i * 90, 280, 52)
-            hover = rect.collidepoint(pygame.mouse.get_pos())
+            rect = self._button_rect(i)
+            hover = rect.collidepoint(window_to_game_position(pygame.mouse.get_pos()))
             pygame.draw.rect(surface, (18, 24, 39), rect)
             pygame.draw.rect(surface, (255, 209, 102) if hover else (104, 225, 203), rect, 3)
             btn = self.btn_font.render(label, True, (245, 245, 245))
@@ -185,6 +220,7 @@ class Background_class:
 
 
 class player_class:
+    LANE_CHANGE_DURATION = 0.16
     def __init__(self, x, y, image_path, scale_factor=0.5, speed=5):
         self.animation_frames = []
         for i in image_path:
@@ -203,6 +239,9 @@ class player_class:
         self.speed = speed
         self.current_lane = 1
         self.lanes_y = []
+        self.lane_change_start_y = float(y)
+        self.lane_change_target_y = float(y)
+        self.lane_change_elapsed = self.LANE_CHANGE_DURATION
 
     def set_lane(self, screen_height):
         top_of_road = screen_height // 2
@@ -214,19 +253,40 @@ class player_class:
             top_of_road + 1 * lane_height + lane_height // 2 - self.height // 2,
             top_of_road + 2 * lane_height + lane_height // 2 - self.height // 2
         ]
-        self.y = self.lanes_y[self.current_lane]
+        self.y = float(self.lanes_y[self.current_lane])
+        self.lane_change_start_y = self.y
+        self.lane_change_target_y = self.y
+        self.lane_change_elapsed = self.LANE_CHANGE_DURATION
+
+    def _begin_lane_change(self):
+        self.lane_change_start_y = self.y
+        self.lane_change_target_y = float(self.lanes_y[self.current_lane])
+        self.lane_change_elapsed = 0.0
 
     def move_up(self):
         if self.current_lane > 0:
             self.current_lane -= 1
-            self.y = self.lanes_y[self.current_lane]
+            self._begin_lane_change()
 
     def move_down(self):
         if self.current_lane < 2:
             self.current_lane += 1
-            self.y = self.lanes_y[self.current_lane]
+            self._begin_lane_change()
 
     def update(self):
+        if self.lane_change_elapsed < self.LANE_CHANGE_DURATION:
+            self.lane_change_elapsed = min(
+                self.lane_change_elapsed + delta_time,
+                self.LANE_CHANGE_DURATION,
+            )
+            progress = self.lane_change_elapsed / self.LANE_CHANGE_DURATION
+            eased_progress = progress * progress * (3 - 2 * progress)
+            self.y = self.lane_change_start_y + (
+                self.lane_change_target_y - self.lane_change_start_y
+            ) * eased_progress
+            if self.lane_change_elapsed >= self.LANE_CHANGE_DURATION:
+                self.y = self.lane_change_target_y
+
         current_time = pygame.time.get_ticks()
         if current_time - self.animation_timer >= self.frame_speed:
             self.animation_timer = current_time
@@ -234,7 +294,7 @@ class player_class:
             self.image = self.animation_frames[self.current_frame]
 
     def draw(self, screen):
-        screen.blit(self.image, (self.x, self.y))
+        screen.blit(self.image, (self.x, round(self.y)))
 
 
 class Obstacle_class:
@@ -454,8 +514,8 @@ class HP:
         self.width, self.height = self.image.get_size()
 
         self.spacing = 10
-        self.start_x = 30
-        self.start_y = 30
+        self.start_x = 10
+        self.start_y = 10
 
         self.reserve_icon = None
         if reserve_icon_path:
@@ -609,7 +669,7 @@ if __name__ == "__main__":
 
     # cache ข้อความคะแนนเหรียญ เรนเดอร์ใหม่เฉพาะตอนคะแนนเปลี่ยน
     coin_text = font.render("Coins: 0", True, (255, 215, 0))
-    coin_pic =  load_scaled(os.path.join('gamepicture', 'Coin1.png'), scale=0.4)
+    coin_pic =  load_scaled(os.path.join('gamepicture', 'Coin1.png'), scale=0.3)
     last_rendered_coins = 0
 
     # cache ข้อความเวลา/เลเวลความเร็ว
@@ -680,7 +740,7 @@ if __name__ == "__main__":
             # อัปเดตและเช็คชนเหรียญ
             for c in coin_list[:]:
                 c.update()
-                offset = (round(c.x) - player.x, c.y - player.y)
+                offset = (round(c.x) - player.x, c.y - round(player.y))
                 if player.mask.overlap(c.mask, offset):
                     coins_collected += 1
                     coin_list.remove(c)
@@ -691,7 +751,7 @@ if __name__ == "__main__":
             # อัปเดตและเช็คชนอุปสรรค
             for obs in obstacles_list[:]:
                 obs.update()
-                offset = (round(obs.x) - player.x, round(obs.y) - player.y)
+                offset = (round(obs.x) - player.x, round(obs.y) - round(player.y))
                 if player.mask.overlap(obs.mask, offset):
                     obs.effect(player, player_hp)
                     obs.sound()
@@ -723,10 +783,10 @@ if __name__ == "__main__":
             if coins_collected != last_rendered_coins:
                 coin_text = font.render(f"Coins: {coins_collected}", True, (255, 215, 0))
                 last_rendered_coins = coins_collected
-            text = font.render(f"Each Pills x10 Pts", True, (255, 215, 0))
-            screen.blit(coin_text, coin_text.get_rect(topright=(SCREEN_WIDTH - 90, 40)))
-            screen.blit(coin_pic, coin_pic.get_rect(topright=(SCREEN_WIDTH - 0, 5)))
-            screen.blit(text, text.get_rect(topright=(SCREEN_WIDTH-1640, 100)))
+            # text = font.render(f"Each Pills x10 Pts", True, (255, 215, 0))
+            screen.blit(coin_text, coin_text.get_rect(topright=(SCREEN_WIDTH - 90, 20)))
+            screen.blit(coin_pic, coin_pic.get_rect(topright=(SCREEN_WIDTH - 0, 0)))
+            # screen.blit(text, text.get_rect(topright=(SCREEN_WIDTH-1640, 100)))
             
 
             secs_left = max(0, math.ceil(GAME_DURATION - game_time))
@@ -756,6 +816,9 @@ if __name__ == "__main__":
             time_up_menu.update(events)
             time_up_menu.draw(screen)
 
+        pygame.transform.scale(screen, viewport_rect.size, scaled_frame)
+        display.fill((0, 0, 0))
+        display.blit(scaled_frame, viewport_rect)
         pygame.display.flip()
         # จำกัด delta_time ไม่ให้เฟรมที่ค้าง (เช่นตอนโหลด) ทำให้ของวาร์ปข้ามจอ
         delta_time = min(clock.tick(60) / 1000, MAX_DELTA)
